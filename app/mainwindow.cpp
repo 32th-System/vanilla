@@ -1,5 +1,14 @@
 #include "mainwindow.h"
 
+#ifdef __linux__
+#include <unistd.h>
+#include <ifaddrs.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <linux/wireless.h>
+#endif
+
 #include <QAudioDevice>
 #include <QComboBox>
 #include <QFileDialog>
@@ -17,12 +26,6 @@
 
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <ifaddrs.h>
-#include <sys/types.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
-#include <linux/wireless.h>
 #include <vanilla.h>
 
 #include "backendinitdialog.h"
@@ -264,6 +267,7 @@ MainWindow::~MainWindow()
     delete m_viewer;
 }
 
+#ifdef __linux__
 int isWireless(const char* ifname, char* protocol)
 {
     int sock = -1;
@@ -285,10 +289,11 @@ int isWireless(const char* ifname, char* protocol)
     close(sock);
     return 0;
 }
-
+#endif
 void MainWindow::populateWirelessInterfaces()
 {
     m_wirelessInterfaceComboBox->clear();
+#ifdef __linux__
     struct ifaddrs *addrs,*tmp;
 
     getifaddrs(&addrs);
@@ -311,9 +316,10 @@ void MainWindow::populateWirelessInterfaces()
     if (m_wirelessInterfaceComboBox->count() > 0) {
         m_wirelessInterfaceComboBox->insertSeparator(m_wirelessInterfaceComboBox->count());
     }
-
+#endif
     m_wirelessInterfaceComboBox->addItem(tr("External Server..."));
 }
+
 
 void MainWindow::populateMicrophones()
 {

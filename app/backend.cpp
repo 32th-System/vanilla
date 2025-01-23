@@ -7,11 +7,7 @@
 #include <QNetworkDatagram>
 #include <QtConcurrent/QtConcurrent>
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <vanilla.h>
 
 void Backend::vanillaEventHandler()

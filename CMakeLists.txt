@@ -15,7 +15,7 @@ OPTION(VANILLA_BUILD_RPI "Build SDL2 app for Raspberry Pi" OFF)
 OPTION(VANILLA_BUILD_TESTS "Build unit tests for Vanilla" OFF)
 
 add_subdirectory(lib)
-if (NOT ANDROID)
+if (LINUX AND NOT ANDROID)
 	add_subdirectory(pipe)
 endif()
 if (VANILLA_BUILD_DESKTOP)

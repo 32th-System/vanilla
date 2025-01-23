@@ -14,9 +14,9 @@ static const char *VANILLA_STATUS_STRINGS[] = {
     "INVALID_ARGUMENT"
 };
 
-void print_status(int errno)
+void print_status(int err)
 {
-    vanilla_log("%s", VANILLA_STATUS_STRINGS[-errno]);
+    vanilla_log("%s", VANILLA_STATUS_STRINGS[-err]);
 }
 
 void print_info(const char *errstr, ...)

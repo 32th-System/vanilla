@@ -1,12 +1,10 @@
 #include "input.h"
 
-#include <arpa/inet.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "gamepad.h"
 #include "status.h"
@@ -249,7 +247,7 @@ void *listen_input(void *x)
 
     do {
         send_input(info->socket_hid);
-        usleep(5 * 1000); // Produces 200Hz input, probably no need to go higher for the Wii U (supposedly the real gamepad is 180Hz)
+        vanilla_sleep(5); // Produces 200Hz input, probably no need to go higher for the Wii U (supposedly the real gamepad is 180Hz)
     } while (!is_interrupted());
 
     pthread_mutex_destroy(&button_mtx);

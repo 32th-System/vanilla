@@ -1,6 +1,7 @@
 #ifndef VANILLA_GAMEPAD_H
 #define VANILLA_GAMEPAD_H
 
+#include "vanilla-os.h"
 #include "vanilla.h"
 
 #include <pthread.h>
@@ -28,11 +29,11 @@ typedef struct
 typedef struct
 {
     event_loop_t *event_loop;
-    int socket_vid;
-    int socket_aud;
-    int socket_hid;
-    int socket_msg;
-    int socket_cmd;
+    socket_t socket_vid;
+    socket_t socket_aud;
+    socket_t socket_hid;
+    socket_t socket_msg;
+    socket_t socket_cmd;
 } gamepad_context_t;
 
 int sync_internal(uint16_t code, uint32_t server_address);

@@ -1,18 +1,11 @@
 #define _GNU_SOURCE
 
 #include "gamepad.h"
-
-#include <arpa/inet.h>
 #include <assert.h>
-#include <errno.h>
-#include <netinet/in.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 #include "audio.h"
 #include "command.h"
@@ -48,18 +41,18 @@ void send_to_console(int fd, const void *data, size_t data_size, int port)
     if (sent == -1) {
         char ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &address.sin_addr, ip, INET_ADDRSTRLEN);
-        print_info("Failed to send to Wii U socket: address: %s, fd: %d, port: %d, errno: %i", ip, fd, port - 100, errno);
+        print_info("Failed to send to Wii U socket: address: %s, fd: %d, port: %d, error: %i", ip, fd, port - 100, vanilla_socket_error());
     }
 }
 
-int create_socket(int *socket_out, uint16_t port)
+int create_socket(socket_t *socket_out, uint16_t port)
 {
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(port);
 
-    int skt = socket(AF_INET, SOCK_DGRAM, 0);
+    socket_t skt = socket(AF_INET, SOCK_DGRAM, 0);
     if (skt == -1) {
         print_info("FAILED TO CREATE SOCKET FOR PORT %i", port);
         return 0;
@@ -68,7 +61,7 @@ int create_socket(int *socket_out, uint16_t port)
     (*socket_out) = skt;
     
     if (bind((*socket_out), (const struct sockaddr *) &address, sizeof(address)) == -1) {
-        print_info("FAILED TO BIND PORT %u: %i", port, errno);
+        print_info("FAILED TO BIND PORT %u: %i", port, vanilla_socket_error());
         return 0;
     }
 
@@ -76,17 +69,18 @@ int create_socket(int *socket_out, uint16_t port)
     return 1;
 }
 
-void send_stop_code(int from_socket, in_port_t port)
+void send_stop_code(socket_t from_socket, in_port_t port)
 {
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     address.sin_port = htons(port);
-    sendto(from_socket, &STOP_CODE, sizeof(STOP_CODE), 0, (struct sockaddr *)&address, sizeof(address));
+    // uint32_t* --explicit--> void* --implicit--> char*
+    sendto(from_socket, (void*)&STOP_CODE, sizeof(STOP_CODE), 0, (struct sockaddr *)&address, sizeof(address));
 }
 
-int send_pipe_cc(int skt, uint32_t cc, int wait_for_reply)
+int send_pipe_cc(socket_t skt, uint32_t cc, int wait_for_reply)
 {
     struct sockaddr_in addr = {0};
 
@@ -99,38 +93,44 @@ int send_pipe_cc(int skt, uint32_t cc, int wait_for_reply)
     uint32_t recv_cc;
 
     do {
-        sendto(skt, &send_cc, sizeof(send_cc), 0, (struct sockaddr *) &addr, sizeof(addr));
+        sendto(skt, (void*)&send_cc, sizeof(send_cc), 0, (struct sockaddr *) &addr, sizeof(addr));
 
         if (!wait_for_reply) {
             return 1;
         }
         
-        read_size = recv(skt, &recv_cc, sizeof(recv_cc), 0);
+        read_size = recv(skt, (void*)&recv_cc, sizeof(recv_cc), 0);
         if (read_size == sizeof(recv_cc) && ntohl(recv_cc) == VANILLA_PIPE_CC_BIND_ACK) {
             return 1;
         }
 
-        sleep(1);
+        vanilla_sleep(1000);
     } while (!is_interrupted());
     
     return 0;
 }
 
-int connect_to_backend(int *socket, uint32_t cc)
+int connect_to_backend(socket_t *socket, uint32_t cc)
 {
     // Try to bind with backend
-    int pipe_cc_skt;
+    socket_t pipe_cc_skt;
     if (!create_socket(&pipe_cc_skt, VANILLA_PIPE_CMD_CLIENT_PORT)) {
         return VANILLA_ERROR;
     }
 
+    #if defined(UNIX)
     struct timeval tv = {0};
     tv.tv_sec = 2;
     setsockopt(pipe_cc_skt, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    #elif defined(_WIN32)
+    DWORD timeout = 2000;
+    // Here I am explicitly casting to const char*, because this is Windows specific code.
+    setsockopt(pipe_cc_skt, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+    #endif
 
     if (!send_pipe_cc(pipe_cc_skt, cc, 1)) {
         print_info("FAILED TO BIND TO PIPE");
-        close(pipe_cc_skt);
+        vanilla_close_socket(pipe_cc_skt);
         return VANILLA_ERROR;
     }
 
@@ -149,7 +149,7 @@ int sync_internal(uint16_t code, uint32_t server_address)
         SERVER_ADDRESS = htonl(server_address);
     }
 
-    int skt = 0;
+    socket_t skt = 0;
     int ret = VANILLA_ERROR;
     if (server_address != 0) {
         ret = connect_to_backend(&skt, VANILLA_PIPE_SYNC_CODE(code));
@@ -161,7 +161,7 @@ int sync_internal(uint16_t code, uint32_t server_address)
     // Wait for sync result from pipe
     uint32_t recv_cc;
     while (1) {
-        ssize_t read_size = recv(skt, &recv_cc, sizeof(recv_cc), 0);
+        ssize_t read_size = recv(skt, (void*)&recv_cc, sizeof(recv_cc), 0);
         if (read_size == sizeof(recv_cc)) {
             recv_cc = ntohl(recv_cc);
             if (recv_cc >> 8 == VANILLA_PIPE_CC_SYNC_STATUS >> 8) {
@@ -178,7 +178,7 @@ int sync_internal(uint16_t code, uint32_t server_address)
 
 exit_pipe:
     if (skt)
-        close(skt);
+        vanilla_close_socket(skt);
 
 exit:
     return ret;
@@ -210,7 +210,7 @@ int connect_as_gamepad_internal(event_loop_t *event_loop, uint32_t server_addres
 
     int ret = VANILLA_ERROR;
 
-    int pipe_cc_skt = 0;
+    socket_t pipe_cc_skt = 0;
     if (server_address != 0) {
         ret = connect_to_backend(&pipe_cc_skt, VANILLA_PIPE_CC_CONNECT);
         if (ret != VANILLA_SUCCESS) {
@@ -240,7 +240,7 @@ int connect_as_gamepad_internal(event_loop_t *event_loop, uint32_t server_addres
     pthread_setname_np(cmd_thread, "vanilla-cmd");
 
     while (1) {
-        usleep(250 * 1000);
+        vanilla_sleep(250);
         if (is_interrupted()) {
             // Wake up any threads that might be blocked on `recv`
             send_stop_code(info.socket_msg, PORT_VID);
@@ -262,23 +262,23 @@ int connect_as_gamepad_internal(event_loop_t *event_loop, uint32_t server_addres
     ret = VANILLA_SUCCESS;
 
 exit_cmd:
-    close(info.socket_cmd);
+    vanilla_close_socket(info.socket_cmd);
 
 exit_aud:
-    close(info.socket_aud);
+    vanilla_close_socket(info.socket_aud);
 
 exit_hid:
-    close(info.socket_hid);
+    vanilla_close_socket(info.socket_hid);
 
 exit_msg:
-    close(info.socket_msg);
+    vanilla_close_socket(info.socket_msg);
 
 exit_vid:
-    close(info.socket_vid);
+    vanilla_close_socket(info.socket_vid);
 
 exit_pipe:
     if (pipe_cc_skt)
-        close(pipe_cc_skt);
+        vanilla_close_socket(pipe_cc_skt);
 
 exit:
     return ret;
